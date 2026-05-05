@@ -8,7 +8,6 @@
 LOG_MODULE_REGISTER(bridge_monitor, LOG_LEVEL_INF);
 
 static const struct device *cdc_dev;
-static const struct device *uart_dev;
 
 static struct uart_config_info current_cfg = {
 	.baudrate = 115200,
@@ -20,20 +19,8 @@ static struct uart_config_info current_cfg = {
 
 void bridge_monitor_init(const struct device *cdc, const struct device *uart)
 {
+	ARG_UNUSED(uart);
 	cdc_dev = cdc;
-	uart_dev = uart;
-}
-
-uint32_t bridge_monitor_get_tx_count(void)
-{
-	/* Byte counting not available without modifying uart_bridge driver */
-	return 0;
-}
-
-uint32_t bridge_monitor_get_rx_count(void)
-{
-	/* Byte counting not available without modifying uart_bridge driver */
-	return 0;
 }
 
 void bridge_monitor_get_config(struct uart_config_info *cfg)
@@ -49,8 +36,43 @@ void bridge_monitor_get_config(struct uart_config_info *cfg)
 	ret = uart_config_get(cdc_dev, &tmp);
 	if (ret == 0) {
 		current_cfg.baudrate = tmp.baudrate;
-		current_cfg.data_bits = tmp.data_bits;
-		current_cfg.stop_bits = tmp.stop_bits;
+		switch (tmp.data_bits) {
+		case UART_CFG_DATA_BITS_5:
+			current_cfg.data_bits = 5;
+			break;
+		case UART_CFG_DATA_BITS_6:
+			current_cfg.data_bits = 6;
+			break;
+		case UART_CFG_DATA_BITS_7:
+			current_cfg.data_bits = 7;
+			break;
+		case UART_CFG_DATA_BITS_8:
+			current_cfg.data_bits = 8;
+			break;
+		case UART_CFG_DATA_BITS_9:
+			current_cfg.data_bits = 9;
+			break;
+		default:
+			current_cfg.data_bits = 8;
+			break;
+		}
+		switch (tmp.stop_bits) {
+		case UART_CFG_STOP_BITS_0_5:
+			current_cfg.stop_bits = 0;
+			break;
+		case UART_CFG_STOP_BITS_1:
+			current_cfg.stop_bits = 1;
+			break;
+		case UART_CFG_STOP_BITS_1_5:
+			current_cfg.stop_bits = 15;
+			break;
+		case UART_CFG_STOP_BITS_2:
+			current_cfg.stop_bits = 2;
+			break;
+		default:
+			current_cfg.stop_bits = 1;
+			break;
+		}
 		switch (tmp.parity) {
 		case UART_CFG_PARITY_NONE:
 			current_cfg.parity = 0;
@@ -68,9 +90,4 @@ void bridge_monitor_get_config(struct uart_config_info *cfg)
 	}
 
 	*cfg = current_cfg;
-}
-
-void bridge_monitor_reset_counts(void)
-{
-	/* No-op in v1 */
 }

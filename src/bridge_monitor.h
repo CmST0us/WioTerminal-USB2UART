@@ -18,10 +18,6 @@ struct uart_config_info {
 };
 
 void bridge_monitor_init(const struct device *cdc_dev, const struct device *uart_dev);
-
-uint32_t bridge_monitor_get_tx_count(void);
-uint32_t bridge_monitor_get_rx_count(void);
 void bridge_monitor_get_config(struct uart_config_info *cfg);
-void bridge_monitor_reset_counts(void);
 
 #endif /* BRIDGE_MONITOR_H_ */

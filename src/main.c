@@ -2,8 +2,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <stdio.h>
-#include <string.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/uart/uart_bridge.h>
 #include <zephyr/kernel.h>
@@ -57,7 +55,6 @@ static void sample_msg_cb(struct usbd_context *const ctx, const struct usbd_msg 
 int main(void)
 {
 	int err;
-	const struct device *sercom3_dev = DEVICE_DT_GET(DT_NODELABEL(sercom3));
 
 	sample_usbd = sample_usbd_init_device(sample_msg_cb);
 	if (sample_usbd == NULL) {
@@ -73,7 +70,7 @@ int main(void)
 		}
 	}
 
-	bridge_monitor_init(cdc_dev, sercom3_dev);
+	bridge_monitor_init(cdc_dev, NULL);
 
 	display_init();
 
@@ -86,8 +83,6 @@ int main(void)
 		cfg.connected = usb_connected;
 		display_update_status(cfg.baudrate, cfg.data_bits,
 				     cfg.stop_bits, cfg.parity, cfg.connected);
-		display_update_counts(bridge_monitor_get_tx_count(),
-				      bridge_monitor_get_rx_count());
 		display_refresh();
 		k_sleep(K_MSEC(CONFIG_USB2UART_DISPLAY_REFRESH_MS));
 	}

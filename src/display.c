@@ -1,10 +1,10 @@
 /*
  * SPDX-License-Identifier: Apache-2.0
+ * Nothing Design — monochrome, typographic, subtractive
  */
 
 #include "display.h"
 #include <stdio.h>
-#include <string.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/display.h>
 #include <zephyr/kernel.h>
@@ -13,65 +13,51 @@
 #define SCREEN_W 320
 #define SCREEN_H 240
 
-/* Layout constants */
-#define STATUS_BAR_H  20
-#define COUNTER_BAR_H 18
-#define DATA_AREA_H   100
+/* Nothing Design color palette */
+#define COL_BG         lv_color_black()
+#define COL_TEXT       lv_color_white()
+#define COL_SECONDARY  lv_color_make(0x99, 0x99, 0x99)
+#define COL_DISABLED   lv_color_make(0x55, 0x55, 0x55)
+#define COL_ACCENT     lv_color_make(0xD7, 0x19, 0x21) /* Nothing red */
+#define COL_CONNECTED  lv_color_make(0x00, 0xE6, 0x76) /* green dot */
 
-/* Y positions */
-#define STATUS_BAR_Y   0
-#define COUNTER_BAR_Y  (STATUS_BAR_H)
-#define TX_AREA_Y      (STATUS_BAR_H + COUNTER_BAR_H)
-#define RX_AREA_Y      (TX_AREA_Y + DATA_AREA_H)
+/* Wire colors per user spec */
+#define COL_WIRE_RX    lv_color_make(0xFF, 0xFF, 0xFF) /* white = RX */
+#define COL_WIRE_TX    lv_color_make(0xFF, 0xD6, 0x00) /* yellow = TX */
+#define COL_WIRE_VCC   lv_color_make(0xFF, 0x2D, 0x2D) /* red = VCC */
+#define COL_WIRE_GND   lv_color_make(0x66, 0x66, 0x66) /* dark gray = GND */
 
-/* Max lines per direction (configurable via Kconfig) */
-#define MAX_LINES CONFIG_USB2UART_MAX_DATA_LINES
-#define LINE_BUF_LEN 48
+/* Y layout anchors */
+#define HERO_Y         32
+#define CONFIG_Y       100
+#define GROVE_Y        130
 
-/* Parity string lookup */
-static const char *parity_str(uint8_t p)
+/* LVGL objects */
+static lv_obj_t *baud_label;     /* hero: baudrate number */
+static lv_obj_t *baud_unit;      /* "baud" label */
+static lv_obj_t *conn_dot;       /* connection indicator */
+static lv_obj_t *config_label;   /* 8N1 config line */
+static lv_obj_t *grove_title;    /* "GROVE" label */
+static lv_obj_t *wire_labels[4]; /* RX, TX, VCC, GND */
+static lv_obj_t *wire_dots[4];   /* colored dots */
+static lv_obj_t *usb_label;      /* "USB" at bottom center */
+
+static const char *stop_bits_str(uint8_t sb)
 {
-	switch (p) {
-	case 1: return "Odd";
-	case 2: return "Even";
-	default: return "None";
+	switch (sb) {
+	case 0:  return "0.5";
+	case 15: return "1.5";
+	case 2:  return "2";
+	default: return "1";
 	}
 }
 
-/* LVGL objects */
-static lv_obj_t *status_label;
-static lv_obj_t *counter_label;
-static lv_obj_t *tx_header_label;
-static lv_obj_t *tx_data_label;
-static lv_obj_t *rx_header_label;
-static lv_obj_t *rx_data_label;
-
-/* Text buffers for scrolling data areas */
-static char tx_lines[MAX_LINES][LINE_BUF_LEN];
-static char rx_lines[MAX_LINES][LINE_BUF_LEN];
-static uint16_t tx_line_count;
-static uint16_t rx_line_count;
-
-/* Internal: append a formatted line to a data area */
-static void append_line(char lines[][LINE_BUF_LEN], uint16_t *count,
-			lv_obj_t *data_label, const char *text)
+static const char *parity_str(uint8_t p)
 {
-	if (*count >= MAX_LINES) {
-		/* Scroll: shift everything up by one line */
-		memmove(lines[0], lines[1], (MAX_LINES - 1) * LINE_BUF_LEN);
-		*count = MAX_LINES - 1;
-	}
-	strncpy(lines[*count], text, LINE_BUF_LEN - 1);
-	lines[*count][LINE_BUF_LEN - 1] = '\0';
-	(*count)++;
-
-	/* Rebuild label text from all lines */
-	lv_label_set_text(data_label, "");
-	for (uint16_t i = 0; i < *count; i++) {
-		lv_label_ins_text(data_label, LV_LABEL_POS_LAST, lines[i]);
-		if (i < *count - 1) {
-			lv_label_ins_text(data_label, LV_LABEL_POS_LAST, "\n");
-		}
+	switch (p) {
+	case 1:  return "O";
+	case 2:  return "E";
+	default: return "N";
 	}
 }
 
@@ -79,7 +65,6 @@ void display_init(void)
 {
 	const struct device *display_dev;
 	lv_obj_t *scr;
-	lv_obj_t *obj;
 
 	display_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_display));
 	if (!device_is_ready(display_dev)) {
@@ -87,178 +72,113 @@ void display_init(void)
 	}
 
 	display_blanking_off(display_dev);
-
 	scr = lv_screen_active();
+	lv_obj_set_style_bg_color(scr, COL_BG, LV_PART_MAIN);
 
-	/* Set screen background to black */
-	lv_obj_set_style_bg_color(scr, lv_color_black(), LV_PART_MAIN);
+	/* ── Primary: Baudrate hero number ── */
+	baud_label = lv_label_create(scr);
+	lv_label_set_text(baud_label, "---");
+	lv_obj_set_style_text_font(baud_label, &lv_font_montserrat_38, LV_PART_MAIN);
+	lv_obj_set_style_text_color(baud_label, COL_TEXT, LV_PART_MAIN);
+	lv_obj_align(baud_label, LV_ALIGN_TOP_LEFT, 20, HERO_Y);
 
-	/* Status bar (y=0, h=20) */
-	obj = lv_obj_create(scr);
-	lv_obj_set_size(obj, SCREEN_W, STATUS_BAR_H);
-	lv_obj_align(obj, LV_ALIGN_TOP_LEFT, 0, STATUS_BAR_Y);
-	lv_obj_set_style_bg_color(obj, lv_color_black(), LV_PART_MAIN);
-	lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN);
-	lv_obj_set_style_pad_top(obj, 1, LV_PART_MAIN);
-	lv_obj_set_style_pad_bottom(obj, 1, LV_PART_MAIN);
-	lv_obj_set_style_pad_left(obj, 1, LV_PART_MAIN);
-	lv_obj_set_style_pad_right(obj, 1, LV_PART_MAIN);
-	lv_obj_set_style_radius(obj, 0, LV_PART_MAIN);
-	lv_obj_set_scrollbar_mode(obj, LV_SCROLLBAR_MODE_OFF);
+	/* "baud" unit label — tight to the number */
+	baud_unit = lv_label_create(scr);
+	lv_label_set_text(baud_unit, "baud");
+	lv_obj_set_style_text_font(baud_unit, &lv_font_montserrat_10, LV_PART_MAIN);
+	lv_obj_set_style_text_color(baud_unit, COL_SECONDARY, LV_PART_MAIN);
+	lv_obj_align_to(baud_unit, baud_label, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 2);
 
-	status_label = lv_label_create(obj);
-	lv_label_set_text(status_label, "Baud:--- D:- S:- P:---");
-	lv_obj_set_style_text_font(status_label, &lv_font_montserrat_10, LV_PART_MAIN);
-	lv_obj_set_style_text_color(status_label, lv_color_white(), LV_PART_MAIN);
-	lv_obj_align(status_label, LV_ALIGN_LEFT_MID, 0, 0);
+	/* Connection dot — top right, accent when connected */
+	conn_dot = lv_obj_create(scr);
+	lv_obj_set_size(conn_dot, 10, 10);
+	lv_obj_align(conn_dot, LV_ALIGN_TOP_RIGHT, -20, HERO_Y + 6);
+	lv_obj_set_style_bg_color(conn_dot, COL_DISABLED, LV_PART_MAIN);
+	lv_obj_set_style_border_width(conn_dot, 0, LV_PART_MAIN);
+	lv_obj_set_style_radius(conn_dot, 5, LV_PART_MAIN);
 
-	/* Counter bar (y=20, h=18) */
-	obj = lv_obj_create(scr);
-	lv_obj_set_size(obj, SCREEN_W, COUNTER_BAR_H);
-	lv_obj_align(obj, LV_ALIGN_TOP_LEFT, 0, COUNTER_BAR_Y);
-	lv_obj_set_style_bg_color(obj, lv_color_black(), LV_PART_MAIN);
-	lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN);
-	lv_obj_set_style_pad_top(obj, 1, LV_PART_MAIN);
-	lv_obj_set_style_pad_bottom(obj, 1, LV_PART_MAIN);
-	lv_obj_set_style_pad_left(obj, 1, LV_PART_MAIN);
-	lv_obj_set_style_pad_right(obj, 1, LV_PART_MAIN);
-	lv_obj_set_style_radius(obj, 0, LV_PART_MAIN);
-	lv_obj_set_scrollbar_mode(obj, LV_SCROLLBAR_MODE_OFF);
+	/* ── Secondary: Config line (8N1) ── */
+	config_label = lv_label_create(scr);
+	lv_label_set_text(config_label, "8 N 1");
+	lv_obj_set_style_text_font(config_label, &lv_font_montserrat_14, LV_PART_MAIN);
+	lv_obj_set_style_text_color(config_label, COL_SECONDARY, LV_PART_MAIN);
+	lv_obj_align(config_label, LV_ALIGN_TOP_LEFT, 20, CONFIG_Y);
 
-	counter_label = lv_label_create(obj);
-	lv_label_set_text(counter_label, "TX: 0  RX: 0");
-	lv_obj_set_style_text_font(counter_label, &lv_font_montserrat_10, LV_PART_MAIN);
-	lv_obj_set_style_text_color(counter_label, lv_color_white(), LV_PART_MAIN);
-	lv_obj_align(counter_label, LV_ALIGN_LEFT_MID, 0, 0);
+	/* ── Tertiary: Grove interface ── */
+	grove_title = lv_label_create(scr);
+	lv_label_set_text(grove_title, "GROVE  LEFT");
+	lv_obj_set_style_text_font(grove_title, &lv_font_montserrat_10, LV_PART_MAIN);
+	lv_obj_set_style_text_color(grove_title, COL_DISABLED, LV_PART_MAIN);
+	lv_obj_set_style_text_letter_space(grove_title, 2, LV_PART_MAIN);
+	lv_obj_align(grove_title, LV_ALIGN_TOP_LEFT, 20, GROVE_Y);
 
-	/* TX data area (y=38, h=100) */
-	obj = lv_obj_create(scr);
-	lv_obj_set_size(obj, SCREEN_W, DATA_AREA_H);
-	lv_obj_align(obj, LV_ALIGN_TOP_LEFT, 0, TX_AREA_Y);
-	lv_obj_set_style_bg_color(obj, lv_color_black(), LV_PART_MAIN);
-	lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN);
-	lv_obj_set_style_pad_top(obj, 1, LV_PART_MAIN);
-	lv_obj_set_style_pad_bottom(obj, 1, LV_PART_MAIN);
-	lv_obj_set_style_pad_left(obj, 1, LV_PART_MAIN);
-	lv_obj_set_style_pad_right(obj, 1, LV_PART_MAIN);
-	lv_obj_set_style_radius(obj, 0, LV_PART_MAIN);
-	lv_obj_set_scrollbar_mode(obj, LV_SCROLLBAR_MODE_OFF);
+	/* Wire color legend — stacked lines with colored dot + label */
+	static const char *wire_names[] = { "RX", "TX", "VCC", "GND" };
+	static const char *color_names[] = { "WHITE", "YELLOW", "RED", "BLACK" };
+	lv_color_t wc[4];
 
-	tx_header_label = lv_label_create(obj);
-	lv_label_set_text(tx_header_label, "TX >>");
-	lv_obj_set_style_text_font(tx_header_label, &lv_font_montserrat_10, LV_PART_MAIN);
-	lv_obj_set_style_text_color(tx_header_label, lv_color_make(0x00, 0xFF, 0x00),
-				     LV_PART_MAIN);
-	lv_obj_align(tx_header_label, LV_ALIGN_TOP_LEFT, 0, 0);
+	wc[0] = COL_WIRE_RX;   /* white */
+	wc[1] = COL_WIRE_TX;   /* yellow */
+	wc[2] = COL_WIRE_VCC;  /* red */
+	wc[3] = COL_WIRE_GND;  /* dark gray */
 
-	tx_data_label = lv_label_create(obj);
-	lv_label_set_text(tx_data_label, "");
-	lv_obj_set_style_text_font(tx_data_label, &lv_font_montserrat_10, LV_PART_MAIN);
-	lv_obj_set_style_text_color(tx_data_label, lv_color_white(), LV_PART_MAIN);
-	lv_obj_align(tx_data_label, LV_ALIGN_TOP_LEFT, 0, 14);
-	lv_obj_set_width(tx_data_label, SCREEN_W - 4);
+	for (int i = 0; i < 4; i++) {
+		int y_off = GROVE_Y + 20 + i * 16;
+		int x = 24;
 
-	/* RX data area (y=138, h=100) */
-	obj = lv_obj_create(scr);
-	lv_obj_set_size(obj, SCREEN_W, DATA_AREA_H);
-	lv_obj_align(obj, LV_ALIGN_TOP_LEFT, 0, RX_AREA_Y);
-	lv_obj_set_style_bg_color(obj, lv_color_black(), LV_PART_MAIN);
-	lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN);
-	lv_obj_set_style_pad_top(obj, 1, LV_PART_MAIN);
-	lv_obj_set_style_pad_bottom(obj, 1, LV_PART_MAIN);
-	lv_obj_set_style_pad_left(obj, 1, LV_PART_MAIN);
-	lv_obj_set_style_pad_right(obj, 1, LV_PART_MAIN);
-	lv_obj_set_style_radius(obj, 0, LV_PART_MAIN);
-	lv_obj_set_scrollbar_mode(obj, LV_SCROLLBAR_MODE_OFF);
+		/* colored dot */
+		wire_dots[i] = lv_obj_create(scr);
+		lv_obj_set_size(wire_dots[i], 6, 6);
+		lv_obj_align(wire_dots[i], LV_ALIGN_TOP_LEFT, x, y_off + 2);
+		lv_obj_set_style_bg_color(wire_dots[i], wc[i], LV_PART_MAIN);
+		lv_obj_set_style_border_width(wire_dots[i], 0, LV_PART_MAIN);
+		lv_obj_set_style_radius(wire_dots[i], 3, LV_PART_MAIN);
 
-	rx_header_label = lv_label_create(obj);
-	lv_label_set_text(rx_header_label, "RX >>");
-	lv_obj_set_style_text_font(rx_header_label, &lv_font_montserrat_10, LV_PART_MAIN);
-	lv_obj_set_style_text_color(rx_header_label, lv_color_make(0x00, 0x80, 0xFF),
-				     LV_PART_MAIN);
-	lv_obj_align(rx_header_label, LV_ALIGN_TOP_LEFT, 0, 0);
+		/* label: "WHITE = RX" */
+		char buf[24];
 
-	rx_data_label = lv_label_create(obj);
-	lv_label_set_text(rx_data_label, "");
-	lv_obj_set_style_text_font(rx_data_label, &lv_font_montserrat_10, LV_PART_MAIN);
-	lv_obj_set_style_text_color(rx_data_label, lv_color_white(), LV_PART_MAIN);
-	lv_obj_align(rx_data_label, LV_ALIGN_TOP_LEFT, 0, 14);
-	lv_obj_set_width(rx_data_label, SCREEN_W - 4);
+		snprintf(buf, sizeof(buf), "%s = %s", color_names[i], wire_names[i]);
+
+		wire_labels[i] = lv_label_create(scr);
+		lv_label_set_text(wire_labels[i], buf);
+		lv_obj_set_style_text_font(wire_labels[i], &lv_font_montserrat_10, LV_PART_MAIN);
+		lv_obj_set_style_text_color(wire_labels[i], COL_SECONDARY, LV_PART_MAIN);
+		lv_obj_align(wire_labels[i], LV_ALIGN_TOP_LEFT, x + 12, y_off);
+	}
+
+	/* ── USB interface — bottom center ── */
+	usb_label = lv_label_create(scr);
+	lv_label_set_text(usb_label, "USB");
+	lv_obj_set_style_text_font(usb_label, &lv_font_montserrat_10, LV_PART_MAIN);
+	lv_obj_set_style_text_color(usb_label, COL_DISABLED, LV_PART_MAIN);
+	lv_obj_set_style_text_letter_space(usb_label, 3, LV_PART_MAIN);
+	lv_obj_align(usb_label, LV_ALIGN_BOTTOM_MID, 0, -6);
+
+	/* Horizontal rule above USB */
+	lv_obj_t *rule = lv_obj_create(scr);
+	lv_obj_set_size(rule, SCREEN_W - 40, 1);
+	lv_obj_align(rule, LV_ALIGN_BOTTOM_MID, 0, -22);
+	lv_obj_set_style_bg_color(rule, COL_DISABLED, LV_PART_MAIN);
+	lv_obj_set_style_border_width(rule, 0, LV_PART_MAIN);
+	lv_obj_set_style_radius(rule, 0, LV_PART_MAIN);
 }
 
 void display_update_status(uint32_t baudrate, uint8_t data_bits, uint8_t stop_bits,
 			   uint8_t parity, bool connected)
 {
-	char buf[48];
+	char buf[16];
 
-	snprintf(buf, sizeof(buf), "Baud:%u D:%u S:%u P:%s %s",
-		 baudrate, data_bits, stop_bits, parity_str(parity),
-		 connected ? "\xE2\x97\x8F" : "\xE2\x97\x8B");
-	lv_label_set_text(status_label, buf);
+	/* Hero: baudrate number */
+	snprintf(buf, sizeof(buf), "%u", baudrate);
+	lv_label_set_text(baud_label, buf);
 
-	if (connected) {
-		lv_obj_set_style_text_color(status_label,
-					    lv_color_make(0x00, 0xFF, 0x00),
-					    LV_PART_MAIN);
-	} else {
-		lv_obj_set_style_text_color(status_label,
-					    lv_color_white(),
-					    LV_PART_MAIN);
-	}
-}
+	/* Config line: "8 N 1" */
+	snprintf(buf, sizeof(buf), "%u %s %s", data_bits, parity_str(parity), stop_bits_str(stop_bits));
+	lv_label_set_text(config_label, buf);
 
-void display_update_counts(uint32_t tx_count, uint32_t rx_count)
-{
-	char buf[32];
-
-	snprintf(buf, sizeof(buf), "TX: %u  RX: %u", tx_count, rx_count);
-	lv_label_set_text(counter_label, buf);
-}
-
-void display_append_data(enum data_direction dir, const uint8_t *data, size_t len)
-{
-	char line[LINE_BUF_LEN];
-	char hex_part[3 * 8 + 1]; /* "XX " * 8 + NUL */
-	char ascii_part[8 + 1];
-	size_t offset = 0;
-
-	while (offset < len) {
-		size_t chunk = len - offset;
-		uint16_t hex_pos = 0;
-		uint16_t ascii_pos = 0;
-
-		if (chunk > 8) {
-			chunk = 8;
-		}
-
-		for (size_t i = 0; i < chunk; i++) {
-			uint8_t byte = data[offset + i];
-
-			snprintf(hex_part + hex_pos, sizeof(hex_part) - hex_pos,
-				 "%02X ", byte);
-			hex_pos += 3;
-
-			ascii_part[ascii_pos++] = (byte >= 0x20 && byte <= 0x7E)
-						      ? (char)byte : '.';
-		}
-		ascii_part[ascii_pos] = '\0';
-
-		/* Pad hex part if less than 8 bytes */
-		while (hex_pos < 3 * 8) {
-			hex_part[hex_pos++] = ' ';
-		}
-		hex_part[hex_pos] = '\0';
-
-		snprintf(line, sizeof(line), "%s %s", hex_part, ascii_part);
-
-		if (dir == DATA_DIR_TX) {
-			append_line(tx_lines, &tx_line_count, tx_data_label, line);
-		} else {
-			append_line(rx_lines, &rx_line_count, rx_data_label, line);
-		}
-
-		offset += chunk;
-	}
+	/* Connection dot */
+	lv_obj_set_style_bg_color(conn_dot, connected ? COL_CONNECTED : COL_DISABLED,
+				  LV_PART_MAIN);
 }
 
 void display_refresh(void)
