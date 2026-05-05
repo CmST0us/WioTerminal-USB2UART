@@ -7,6 +7,17 @@
 /* Disable the board's default CDC ACM console to avoid conflict with bridge */
 /delete-node/ &board_cdc_acm_uart;
 
+/* Remove chosen nodes that referenced board_cdc_acm_uart */
+/ {
+	chosen {
+		/delete-property/ zephyr,console;
+		/delete-property/ zephyr,shell-uart;
+		/delete-property/ zephyr,uart-mcumgr;
+		/delete-property/ zephyr,bt-mon-uart;
+		/delete-property/ zephyr,bt-c2h-uart;
+	};
+};
+
 /* Override SERCOM3 from I2C to UART */
 &sercom3 {
 	/delete-property/ compatible;

@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# Source common USB sample options for sample_usbd_init
+source "samples/subsys/usb/common/Kconfig.sample_usbd"
+
+source "Kconfig.zephyr"
