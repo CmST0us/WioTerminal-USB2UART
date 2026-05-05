@@ -12,12 +12,15 @@
 
 #include <sample_usbd.h>
 
+#include "bridge_monitor.h"
+
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(usb2uart, LOG_LEVEL_INF);
 
 const struct device *const cdc_dev = DEVICE_DT_GET_ONE(zephyr_cdc_acm_uart);
 
 static struct usbd_context *sample_usbd;
+static bool usb_connected;
 
 #define DEVICE_DT_GET_COMMA(node_id) DEVICE_DT_GET(node_id),
 
@@ -44,11 +47,16 @@ static void sample_msg_cb(struct usbd_context *const ctx, const struct usbd_msg 
 			uart_bridge_settings_update(msg->dev, uart_bridges[i]);
 		}
 	}
+
+	if (msg->type == USBD_MSG_CDC_ACM_CONTROL_LINE_STATE) {
+		usb_connected = true;
+	}
 }
 
 int main(void)
 {
 	int err;
+	const struct device *sercom3_dev = DEVICE_DT_GET(DT_NODELABEL(sercom3));
 
 	sample_usbd = sample_usbd_init_device(sample_msg_cb);
 	if (sample_usbd == NULL) {
@@ -64,9 +72,20 @@ int main(void)
 		}
 	}
 
+	bridge_monitor_init(cdc_dev, sercom3_dev);
+
 	LOG_INF("USB2UART bridge ready");
 
-	k_sleep(K_FOREVER);
+	while (1) {
+		struct uart_config_info cfg;
+
+		bridge_monitor_get_config(&cfg);
+		cfg.connected = usb_connected;
+		LOG_INF("Config: baud=%u d=%u s=%u p=%u conn=%u",
+			cfg.baudrate, cfg.data_bits, cfg.stop_bits,
+			cfg.parity, cfg.connected);
+		k_sleep(K_MSEC(1000));
+	}
 
 	return 0;
 }
