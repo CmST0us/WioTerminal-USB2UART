@@ -18,7 +18,7 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(usb2uart, LOG_LEVEL_INF);
 
-const struct device *const cdc_dev = DEVICE_DT_GET_ONE(zephyr_cdc_acm_uart);
+const struct device *const cdc_dev = DEVICE_DT_GET(DT_NODELABEL(cdc_acm_uart0));
 
 static struct usbd_context *sample_usbd;
 static bool usb_connected;
