@@ -13,6 +13,7 @@
 #include <sample_usbd.h>
 
 #include "bridge_monitor.h"
+#include "display.h"
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(usb2uart, LOG_LEVEL_INF);
@@ -74,6 +75,8 @@ int main(void)
 
 	bridge_monitor_init(cdc_dev, sercom3_dev);
 
+	display_init();
+
 	LOG_INF("USB2UART bridge ready");
 
 	while (1) {
@@ -81,10 +84,12 @@ int main(void)
 
 		bridge_monitor_get_config(&cfg);
 		cfg.connected = usb_connected;
-		LOG_INF("Config: baud=%u d=%u s=%u p=%u conn=%u",
-			cfg.baudrate, cfg.data_bits, cfg.stop_bits,
-			cfg.parity, cfg.connected);
-		k_sleep(K_MSEC(1000));
+		display_update_status(cfg.baudrate, cfg.data_bits,
+				     cfg.stop_bits, cfg.parity, cfg.connected);
+		display_update_counts(bridge_monitor_get_tx_count(),
+				      bridge_monitor_get_rx_count());
+		display_refresh();
+		k_sleep(K_MSEC(100));
 	}
 
 	return 0;
