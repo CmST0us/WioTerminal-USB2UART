@@ -3,4 +3,17 @@
 # Source common USB sample options for sample_usbd_init
 source "samples/subsys/usb/common/Kconfig.sample_usbd"
 
+config USB2UART_DISPLAY_REFRESH_MS
+	int "Display refresh interval in milliseconds"
+	default 100
+	help
+	  How often the LVGL display refreshes status and data.
+
+config USB2UART_MAX_DATA_LINES
+	int "Maximum lines of hex data to keep per direction"
+	default 128
+	help
+	  Number of hex+ASCII lines retained in the TX/RX data display
+	  before oldest lines are discarded.
+
 source "Kconfig.zephyr"

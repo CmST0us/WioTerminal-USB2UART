@@ -89,7 +89,7 @@ int main(void)
 		display_update_counts(bridge_monitor_get_tx_count(),
 				      bridge_monitor_get_rx_count());
 		display_refresh();
-		k_sleep(K_MSEC(100));
+		k_sleep(K_MSEC(CONFIG_USB2UART_DISPLAY_REFRESH_MS));
 	}
 
 	return 0;

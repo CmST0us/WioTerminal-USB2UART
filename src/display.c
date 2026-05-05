@@ -24,8 +24,8 @@
 #define TX_AREA_Y      (STATUS_BAR_H + COUNTER_BAR_H)
 #define RX_AREA_Y      (TX_AREA_Y + DATA_AREA_H)
 
-/* Max lines per direction (reduced to save RAM) */
-#define MAX_LINES 128
+/* Max lines per direction (configurable via Kconfig) */
+#define MAX_LINES CONFIG_USB2UART_MAX_DATA_LINES
 #define LINE_BUF_LEN 48
 
 /* Parity string lookup */
