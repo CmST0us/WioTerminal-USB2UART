@@ -1,0 +1,48 @@
+/*
+ * Wio Terminal USB2UART overlay
+ * SERCOM3 -> UART on left Grove (PA16=TX PAD1, PA17=RX PAD0)
+ * USB CDC ACM <-> SERCOM3 uart bridge
+ */
+
+/* Disable the board's default CDC ACM console to avoid conflict with bridge */
+/delete-node/ &board_cdc_acm_uart;
+
+/* Override SERCOM3 from I2C to UART */
+&sercom3 {
+	/delete-property/ compatible;
+	/delete-property/ clock-frequency;
+	/delete-property/ #address-cells;
+	/delete-property/ #size-cells;
+	compatible = "atmel,sam0-uart";
+	status = "okay";
+	current-speed = <115200>;
+	rxpo = <0>;
+	txpo = <0>;
+	pinctrl-0 = <&sercom3_uart_default>;
+	pinctrl-names = "default";
+};
+
+/* Add SERCOM3 UART pinctrl (PA16=SERCOM3_PAD1 TX, PA17=SERCOM3_PAD0 RX) */
+&pinctrl {
+	sercom3_uart_default: sercom3_uart_default {
+		group1 {
+			pinmux = <PA16D_SERCOM3_PAD1>,
+				 <PA17D_SERCOM3_PAD0>;
+		};
+	};
+};
+
+/* CDC ACM UART instance under USB controller */
+&usb0 {
+	cdc_acm_uart0: cdc_acm_uart0 {
+		compatible = "zephyr,cdc-acm-uart";
+	};
+};
+
+/* UART Bridge: CDC ACM <-> SERCOM3 */
+/ {
+	uart-bridge0 {
+		compatible = "zephyr,uart-bridge";
+		peers = <&cdc_acm_uart0 &sercom3>;
+	};
+};
